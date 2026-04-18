@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+  namespace: ejbca
+spec:
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+      - name: mariadb
+        image: mariadb:10.6
+        env:
+        - name: MARIADB_ROOT_PASSWORD
+          valueFrom: { secretKeyRef: { name: ejbca-db-secret, key: mysql-root-password } }
+        - name: MARIADB_DATABASE
+          value: "ejbca"
+        - name: MARIADB_USER
+          value: "ejbca"
+        - name: MARIADB_PASSWORD
+          valueFrom: { secretKeyRef: { name: ejbca-db-secret, key: mysql-password } }
+        - name: MARIADB_ROOT_HOST  # THÊM DÒNG NÀY
+          value: "%"               # Cho phép root từ mọi host
+        volumeMounts:
+        - name: db-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: db-storage
+        persistentVolumeClaim:
+          claimName: mariadb-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  namespace: ejbca
+spec:
+  ports:
+    - port: 3306
+  selector:
+    app: mariadb

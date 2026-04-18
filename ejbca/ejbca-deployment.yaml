@@ -1,0 +1,79 @@
+# 2. Tạo Service và Endpoint cho Database bên ngoài
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb-external
+  namespace: ejbca
+  labels:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/instance: external-db
+    app.kubernetes.io/component: database
+spec:
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306
+
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: mariadb-external
+  namespace: ejbca
+subsets:
+  - addresses:
+      - ip: 172.31.47.157
+    ports:
+      - port: 3306
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ejbca
+  namespace: ejbca
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ejbca
+  template:
+    metadata:
+      labels:
+        app: ejbca
+    spec:
+      containers:
+      - name: ejbca
+        image: keyfactor/ejbca-ce:latest
+        env:
+        - name: DATABASE_JDBC_URL
+          value: "jdbc:mariadb://mariadb-external:3306/ejbca"
+        - name: DATABASE_USER
+          value: "ejbca"
+        - name: DATABASE_PASSWORD
+          valueFrom: { secretKeyRef: { name: ejbca-db-secret, key: mysql-password } }
+        - name: EJBCA_AUTO_CONFIGURE
+          value: "true"
+        - name: EJBCA_WAIT_FOR_INSTALL
+          value: "false"
+        ports:
+        - containerPort: 8080
+        - containerPort: 8443
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ejbca-service
+  namespace: ejbca
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    nodePort: 30080  # Truy cập qua http://IP:30080
+  - name: https-ui
+    port: 8443
+    targetPort: 8443
+    nodePort: 31047  # Cổng quan trọng nhất để vào Admin Web

@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ejbca-service
+  namespace: ejbca # Thêm namespace để đồng bộ
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080 # Trỏ vào đúng port của container
+      nodePort: 32200
+    - name: https
+      port: 8443
+      targetPort: 8443 # Trỏ vào đúng port của container
+      nodePort: 32255
+  selector:
+    app: ejbca
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ejbca
+  namespace: ejbca
+  labels:
+    app: ejbca
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ejbca
+  template:
+    metadata:
+      labels:
+        app: ejbca
+    spec:
+      containers:
+        - name: ejbca
+          image: keyfactor/ejbca-ce:latest
+          ports:
+            - containerPort: 8080 # Port mặc định của Image Keyfactor
+            - containerPort: 8443 # Port HTTPS mặc định
+          env:
+            # LƯU Ý: Thay 'postgres-service' bằng tên Service Postgres của bạn
+            - name: DATABASE_JDBC_URL
+              value: "jdbc:postgresql://ejbca-db:5432/ejbca"
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ejbca-secret
+                  key: EJBCA_JDBC_USERNAME
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ejbca-secret
+                  key: EJBCA_JDBC_PASSWORD

@@ -1,0 +1,36 @@
+
+# 1. Khai báo thông tin dang nh?p Database
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ejbca-secret
+  namespace: ejbca
+type: Opaque
+stringData:
+  # Thay b?ng user và password b?n dã t?o ? các bu?c tru?c
+  EJBCA_JDBC_USERNAME: "ejbca"
+  EJBCA_JDBC_PASSWORD: "ejbcapassword"
+
+---
+# 2. T?o Endpoint d? K8s "th?y" Database bên ngoài (External Service)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ejbca-db
+  namespace: ejbca
+spec:
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ejbca-db
+  namespace: ejbca
+subsets:
+  - addresses:
+      - ip: 192.168.13.128 # IP Ubuntu server c?a b?n
+    ports:
+      - port: 5432

@@ -1,0 +1,139 @@
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
+
+sudo apt update && sudo apt upgrade -y
+sudo apt install mariadb-server -y
+sudo systemctl status mariadb
+sudo mysql_secure_installation
+sudo mariadb -u root -p
+sudo nano /etc/mysql/mariadb.conf.d/50-server.cnf
+	Tìm dòng bind-address = 127.0.0.1 và sửa thành bind-address = 0.0.0.0 (để lắng nghe mọi IP) hoặc IP cụ thể của bạn.
+sudo systemctl restart mariadb
+sudo ufw allow 3306/tcp
+
+sudo mariadb -u root
+CREATE DATABASE ten_database_cua_ban CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE my_project_db;
+CREATE USER project_admin WITH ENCRYPTED PASSWORD 'mat_khau_cua_ban';
+GRANT ALL PRIVILEGES ON DATABASE my_project_db TO project_admin;
+
+-- Cho phép root đăng nhập từ bất kỳ IP nào (Dùng cho môi trường dev)
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'mat_khau_cua_ban' WITH GRANT OPTION;
+
+-- Hoặc an toàn hơn, nếu bạn dùng SSH Tunnel, hãy đảm bảo root có quyền tại localhost
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' IDENTIFIED BY 'mat_khau_cua_ban' WITH GRANT OPTION;
+
+-- Cập nhật lại quyền
+FLUSH PRIVILEGES;
+EXIT;
+
+
+DROP USER IF EXISTS 'ejbca'@'%';
+FLUSH PRIVILEGES;
+DROP USER IF EXISTS 'ejbca'@'%';
+FLUSH PRIVILEGES;
+
+
+sudo mkdir -p /mnt/data/mariadb
+sudo chmod 777 /mnt/data/mariadb
+
+kubectl logs -f -n ejbca -l app=mariadb
+
+
+sudo mkdir -p /mnt/ejbca
+sudo chown -R 1000:1000 /mnt/ejbca
+sudo chmod -R 775 /mnt/ejbca
+
+
+sudo rm -rf /mnt/ejbca/*
+
+sudo mkdir -p /mnt/ejbca
+sudo chmod 777 /mnt/ejbca
+
+kubectl create secret generic ejbca-db-secret \
+  --from-literal=EJBCA_JDBC_USERNAME=ejbca \
+  --from-literal=EJBCA_JDBC_PASSWORD=ejbca123 \
+  -n ejbca
+
+
+
+kubectl create secret generic ejbca-db-secret -n ejbca \
+  --from-literal=mysql-password=ejbca123 \
+  --from-literal=mysql-root-password=root123
+
+kubectl cp ejbca/$POD_NAME:/opt/keyfactor/ejbca/p12/superadmin.p12 ./superadmin.p12 -n ejbca
+
+kubectl exec -it -n ejbca deploy/mariadb -- mariadb -u root -proot123
+
+-- Cấp quyền cho user 'ejbca' kết nối từ bất kỳ IP nào
+GRANT ALL PRIVILEGES ON ejbca.* TO 'ejbca'@'%' IDENTIFIED BY 'password';
+
+-- Nếu bạn dùng mật khẩu khác, hãy thay 'password' bằng mật khẩu trong Secret của bạn
+FLUSH PRIVILEGES;
+EXIT;
+
+
+sudo rm -rf /mnt/data/mariadb/*
+
+kubectl delete deployment mariadb -n ejbca
+
+# 1. Xóa Deployment
+kubectl delete deployment ejbca mariadb -n ejbca
+
+# 2. Xóa PVC (Để xóa ổ đĩa lỗi)
+kubectl delete pvc mariadb-pvc -n ejbca
+
+# 3. Xóa dữ liệu vật lý trên máy Host (Rất quan trọng)
+sudo rm -rf /mnt/data/mariadb/*
+
+
+
+kubectl logs -f -l app=ejbca -n ejbca
+
+kubectl exec -it deploy/mariadb -n ejbca -- mariadb -u ejbca -pejbca123 -e "USE ejbca; SHOW TABLES;"
+
+kubectl exec -n ejbca <ejbca-pod-name> -- ls -l /opt/keyfactor/ejbca/p12/superadmin.p12
+
+
+kubectl exec -it -n ejbca $POD_NAME -- /opt/keyfactor/ejbca/bin/ejbca.sh ra
+
+
+POD_NAME=$(kubectl get pods -n ejbca -l app=ejbca -o jsonpath="{.items[0].metadata.name}")
+
+kubectl exec -it -n ejbca $POD_NAME -- /opt/keyfactor/ejbca/bin/ejbca.sh ra addendentity --username superadmin --password ejbca --dn "CN=SuperAdmin" --caname ManagementCA --type 1 --token P12
+
+
+# 1. Đặt mật khẩu xác nhận
+kubectl exec -it -n ejbca $POD_NAME -- /opt/keyfactor/ejbca/bin/ejbca.sh ra setclearpwd superadmin ejbca
+
+# 2. Xuất file .p12
+kubectl exec -it -n ejbca $POD_NAME -- /opt/keyfactor/ejbca/bin/ejbca.sh batch
+
+kubectl cp ejbca/$POD_NAME:p12/superadmin.p12 /root/ejbca/superadmin.p12 -n ejbca
+
+
+
+kubectl exec -it -n ejbca $POD_NAME -- \
+/opt/keyfactor/ejbca/bin/ejbca.sh ra setendentitystatus superadmin 10
+
+kubectl exec -it -n ejbca $POD_NAME -- \
+/opt/keyfactor/ejbca/bin/ejbca.sh ra setclearpwd superadmin ejbca
+
+kubectl exec -it -n ejbca $POD_NAME -- \
+/opt/keyfactor/ejbca/bin/ejbca.sh batch
+
+
+curl -k -v  https://192.168.88.133:31443/ejbca/adminweb/
+
+# Xóa service cũ
+kubectl delete svc ejbca-service -n ejbca
+
+# Tạo lại service mới (để K8s tự cấp một port ngẫu nhiên mới)
+kubectl expose deployment ejbca --type=NodePort --name=ejbca-service --port=8443 --target-port=8443 -n ejbca
+
+# Kiểm tra port mới được cấp (ví dụ: 32xxx)
+kubectl get svc -n ejbca
+
+
+kubectl exec -it deployment/ejbca -n ejbca -- /bin/bash
+
+
